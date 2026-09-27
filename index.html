@@ -3,64 +3,188 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>E-mail Temporário</title>
+    <title>E-mail Temporário com Senha</title>
     <style>
         body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; background: #f4f4f9; color: #333; }
         .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        button { background: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; }
+        input, select { width: 100%; padding: 10px; margin: 8px 0 15px 0; display: inline-block; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; width: 100%; font-size: 1em; }
         button:hover { background: #0056b3; }
-        .email-display { font-size: 1.2em; font-weight: bold; margin: 10px 0; color: #007bff; }
-        .message { border-bottom: 1px solid #eee; padding: 10px 0; }
+        .btn-danger { background: #dc3545; margin-top: 10px; }
+        .btn-danger:hover { background: #c82333; }
+        .tabs { display: flex; margin-bottom: 20px; }
+        .tab { flex: 1; padding: 10px; text-align: center; background: #ddd; cursor: pointer; border-radius: 4px 4px 0 0; font-weight: bold; }
+        .tab.active { background: #fff; border-bottom: 3px solid #007bff; color: #007bff; }
+        .hidden { display: none; }
+        .email-display { font-size: 1.2em; font-weight: bold; margin: 10px 0; color: #007bff; word-break: break-all; }
+        .message { border-bottom: 1px solid #eee; padding: 15px 0; }
         .message:last-child { border-bottom: none; }
+        .error { color: red; font-size: 0.9em; margin-bottom: 10px; }
     </style>
 </head>
 <body>
-    <div class="card">
-        <h2>Seu E-mail Temporário</h2>
-        <div class="email-display" id="emailAddress">Clique em gerar para começar</div>
-        <button onclick="generateEmail()">Gerar Novo E-mail</button>
+
+    <div id="authContainer">
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('create')">Criar E-mail</div>
+            <div class="tab" onclick="switchTab('login')">Fazer Login</div>
+        </div>
+
+        <!-- ABA CRIAR -->
+        <div id="createTab" class="card">
+            <h2>Criar E-mail Temporário</h2>
+            <div id="createError" class="error"></div>
+            <label>Defina uma Senha:</label>
+            <input type="password" id="createPassword" placeholder="Sua senha de acesso">
+            
+            <label>Tempo de Duração:</label>
+            <select id="durationSelect">
+                <option value="10">10 minutos</option>
+                <option value="30">30 minutos</option>
+                <option value="60">1 hora</option>
+                <option value="1440">24 horas</option>
+                <option value="0">Até eu excluir manualmente</option>
+            </select>
+
+            <button onclick="createEmail()">Gerar E-mail e Senha</button>
+        </div>
+
+        <!-- ABA LOGIN -->
+        <div id="loginTab" class="card hidden">
+            <h2>Acessar Caixa de Entrada</h2>
+            <div id="loginError" class="error"></div>
+            <label>E-mail:</label>
+            <input type="text" id="loginEmail" placeholder="ex: 12a34b56@seudominio.com">
+            
+            <label>Senha:</label>
+            <input type="password" id="loginPassword" placeholder="Sua senha">
+
+            <button onclick="loginEmail()">Entrar</button>
+        </div>
     </div>
 
-    <div class="card">
-        <h3>Caixa de Entrada</h3>
-        <div id="messagesList">Nenhuma mensagem recebida ainda.</div>
+    <!-- PAINEL DA CAIXA DE ENTRADA (Aparece após logar ou criar) -->
+    <div id="inboxContainer" class="card hidden">
+        <h2>Caixa de Entrada</h2>
+        <div class="email-display" id="currentEmailDisplay"></div>
+        <p><strong>Senha:</strong> <span id="currentPasswordDisplay"></span></p>
+        <button onclick="logout()">Sair / Trocar de Conta</button>
+        <button class="btn-danger" onclick="deleteInbox()">Excluir Este E-mail Definitivamente</button>
+        
+        <hr style="margin: 20px 0;">
+        
+        <h3>Mensagens Recebidas</h3>
+        <div id="messagesList">Carregando mensagens...</div>
     </div>
 
     <script>
         let currentEmail = '';
         let intervalId = null;
 
-        async function generateEmail() {
-            // Usa o domínio da sua API ou da página
+        function switchTab(tab) {
+            if (tab === 'create') {
+                document.getElementById('createTab').classList.remove('hidden');
+                document.getElementById('loginTab').classList.add('hidden');
+                document.querySelectorAll('.tab')[0].classList.add('active');
+                document.querySelectorAll('.tab')[1].classList.remove('active');
+            } else {
+                document.getElementById('createTab').classList.add('hidden');
+                document.getElementById('loginTab').classList.remove('hidden');
+                document.querySelectorAll('.tab')[0].classList.remove('active');
+                document.querySelectorAll('.tab')[1].classList.add('active');
+            }
+        }
+
+        async function createEmail() {
+            const password = document.getElementById('createPassword').value;
+            const durationMinutes = document.getElementById('durationSelect').value;
+            const errorDiv = document.getElementById('createError');
+
+            if (!password) {
+                errorDiv.innerText = 'Por favor, insira uma senha.';
+                return;
+            }
+            errorDiv.innerText = '';
+
             const domain = window.location.hostname;
-            const response = await fetch('/api/generate', {
+            const response = await fetch('/api/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ domain })
+                body: JSON.stringify({ domain, password, durationMinutes })
             });
             const data = await response.json();
-            currentEmail = data.email;
-            document.getElementById('emailAddress').innerText = currentEmail;
-            document.getElementById('messagesList').innerText = 'Aguardando mensagens...';
 
+            if (data.success) {
+                enterInbox(data.email, password);
+            } else {
+                errorDiv.innerText = data.error || 'Erro ao criar e-mail.';
+            }
+        }
+
+        async function loginEmail() {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const errorDiv = document.getElementById('loginError');
+
+            if (!email || !password) {
+                errorDiv.innerText = 'Preencha o e-mail e a senha.';
+                return;
+            }
+            errorDiv.innerText = '';
+
+            const response = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                enterInbox(data.email, password);
+            } else {
+                errorDiv.innerText = data.error || 'Login inválido.';
+            }
+        }
+
+        function enterInbox(email, password) {
+            currentEmail = email;
+            document.getElementById('authContainer').classList.add('hidden');
+            document.getElementById('inboxContainer').classList.remove('hidden');
+            document.getElementById('currentEmailDisplay').innerText = email;
+            document.getElementById('currentPasswordDisplay').innerText = password;
+
+            fetchMessages();
             if (intervalId) clearInterval(intervalId);
             intervalId = setInterval(fetchMessages, 5000);
         }
 
+        function logout() {
+            currentEmail = '';
+            if (intervalId) clearInterval(intervalId);
+            document.getElementById('inboxContainer').classList.add('hidden');
+            document.getElementById('authContainer').classList.remove('hidden');
+        }
+
+        async function deleteInbox() {
+            if (!confirm('Tem certeza que deseja excluir este e-mail? Todas as mensagens serão apagadas.')) return;
+            await fetch(`/api/inbox/${currentEmail}`, { method: 'DELETE' });
+            logout();
+        }
+
         async function fetchMessages() {
-            if (!currentemail) return;
+            if (!currentEmail) return;
             const response = await fetch(`/api/inbox/${currentEmail}`);
             const data = await response.json();
 
             const listDiv = document.getElementById('messagesList');
             if (data.messages.length === 0) {
-                listDiv.innerHTML = 'Nenhuma mensagem recebida ainda.';
+                listDiv.innerHTML = 'Nenhuma mensagem recebida ainda. Aguardando...';
                 return;
             }
 
             listDiv.innerHTML = data.messages.map(msg => `
                 <div class="message">
-                    <strong>De:</strong> ${msg.from}<br>
+                    <strong>De:</strong> ${msg.sender}<br>
                     <strong>Assunto:</strong> ${msg.subject}<br>
                     <small>${new Date(msg.date).toLocaleString()}</small>
                     <hr>

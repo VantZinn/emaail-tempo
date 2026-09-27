@@ -1,48 +1,139 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
-const fs = require('fs');
+const sqlite3 = require('sqlite3').verbose();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Armazenamento em memória
-const inboxes = new Map();
-
 app.use(express.json());
 
-// Rota principal: serve o index.html direto da raiz do projeto
-app.get('/', (req, res) => {
-  const indexPath = path.join(__dirname, 'index.html');
-  if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
+// --- CONFIGURAÇÃO DO BANCO DE DADOS SQLITE ---
+const dbFile = path.join(__dirname, 'database.sqlite');
+const db = new sqlite3.Database(dbFile, (err) => {
+  if (err) {
+    console.error('Erro ao abrir o banco de dados', err.message);
   } else {
-    res.status(404).send('<h1>Erro: index.html nao encontrado na raiz do projeto</h1>');
+    console.log('Conectado ao banco de dados SQLite.');
   }
 });
 
-// --- API DE GERENCIAMENTO ---
+// Criação das tabelas
+db.serialize(() => {
+  db.run(`CREATE TABLE IF NOT EXISTS inboxes (
+    email TEXT PRIMARY KEY,
+    password TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+  )`);
 
-app.post('/api/generate', (req, res) => {
-  const { domain } = req.body;
-  if (!domain) {
-    return res.status(400).json({ error: 'Dominio nao informado' });
+  db.run(`CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    sender TEXT,
+    subject TEXT,
+    text TEXT,
+    html TEXT,
+    date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(email) REFERENCES inboxes(email)
+  )`);
+});
+
+// Limpa e-mails expirados a cada 1 minuto
+setInterval(() => {
+  const now = Date.now();
+  db.run(`DELETE FROM inboxes WHERE expires_at > 0 AND expires_at < ?`, [now], function(err) {
+    if (this && this.changes > 0) {
+      console.log(`[LIMPEZA] ${this.changes} e-mails expirados removidos.`);
+    }
+  });
+}, 60000);
+
+// --- ROTAS DA API ---
+
+// Criar novo e-mail temporário
+app.post('/api/create', (req, res) => {
+  const { domain, password, durationMinutes } = req.body;
+  
+  if (!domain || !password) {
+    return res.status(400).json({ error: 'Domínio e senha são obrigatórios.' });
   }
 
   const username = uuidv4().substring(0, 8);
   const email = `${username}@${domain}`.toLowerCase();
   
-  inboxes.set(email, []);
-  res.json({ email });
+  // 0 significa para sempre (até excluir manualmente)
+  let expires_at = 0;
+  if (durationMinutes && Number(durationMinutes) > 0) {
+    expires_at = Date.now() + Number(durationMinutes) * 60 * 1000;
+  }
+
+  db.run(
+    `INSERT INTO inboxes (email, password, expires_at) VALUES (?, ?, ?)`,
+    [email, password, expires_at],
+    (err) => {
+      if (err) {
+        return res.status(500).json({ error: 'Erro ao criar e-mail no banco de dados.' });
+      }
+      res.json({ success: true, email });
+    }
+  );
 });
 
+// Fazer login na caixa de entrada
+app.post('/api/login', (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Informe o e-mail e a senha.' });
+  }
+
+  db.get(
+    `SELECT * FROM inboxes WHERE email = ? AND password = ?`,
+    [email.toLowerCase(), password],
+    (err, row) => {
+      if (err) {
+        return res.status(500).json({ error: 'Erro interno no servidor.' });
+      }
+      if (!row) {
+        return res.status(401).json({ error: 'E-mail ou senha incorretos, ou conta expirada.' });
+      }
+
+      // Verifica expiração caso tenha tempo limite
+      if (row.expires_at > 0 && Date.now() > row.expires_at) {
+        return res.status(401).json({ error: 'Este e-mail já expirou.' });
+      }
+
+      res.json({ success: true, email: row.email });
+    }
+  );
+});
+
+// Buscar mensagens da caixa de entrada específica
 app.get('/api/inbox/:email', (req, res) => {
   const email = req.params.email.toLowerCase();
-  const messages = inboxes.get(email) || [];
-  res.json({ messages });
+
+  db.all(
+    `SELECT * FROM messages WHERE email = ? ORDER BY date DESC`,
+    [email],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: 'Erro ao buscar mensagens.' });
+      }
+      res.json({ messages: rows });
+    }
+  );
 });
 
-// --- WEBHOOK PARA RECEBER OS E-MAILS DO CLOUDFLARE ---
+// Excluir caixa de entrada manualmente
+app.delete('/api/inbox/:email', (req, res) => {
+  const email = req.params.email.toLowerCase();
+  db.run(`DELETE FROM inboxes WHERE email = ?`, [email], function(err) {
+    db.run(`DELETE FROM messages WHERE email = ?`, [email]);
+    res.json({ success: true });
+  });
+});
+
+// --- WEBHOOK PARA RECEBER E-MAILS DO CLOUDFLARE ---
 app.post('/api/webhook/email', (req, res) => {
   const { recipient, sender, subject, text, html } = req.body;
 
@@ -52,21 +143,33 @@ app.post('/api/webhook/email', (req, res) => {
 
   const emailAddress = recipient.toLowerCase();
 
-  if (inboxes.has(emailAddress)) {
-    const message = {
-      id: uuidv4(),
-      from: sender || 'Desconhecido',
-      subject: subject || '(Sem assunto)',
-      text: text || '',
-      html: html || '',
-      date: new Date()
-    };
+  // Verifica se a caixa existe e não expirou
+  db.get(`SELECT * FROM inboxes WHERE email = ?`, [emailAddress], (err, inbox) => {
+    if (inbox) {
+      if (inbox.expires_at > 0 && Date.now() > inbox.expires_at) {
+        return res.status(200).json({ success: false, reason: 'Expired' });
+      }
 
-    inboxes.get(emailAddress).unshift(message);
-    console.log(`[WEBHOOK] E-mail recebido para: ${emailAddress} | Assunto: ${subject}`);
-  }
+      const msgId = uuidv4();
+      db.run(
+        `INSERT INTO messages (id, email, sender, subject, text, html) VALUES (?, ?, ?, ?, ?, ?)`,
+        [msgId, emailAddress, sender || 'Desconhecido', subject || '(Sem assunto)', text || '', html || ''],
+        (err) => {
+          if (!err) {
+            console.log(`[WEBHOOK] E-mail salvo para: ${emailAddress} | Assunto: ${subject}`);
+          }
+        }
+      );
+    }
+  });
 
   res.status(200).json({ success: true });
+});
+
+// Rota principal: Serve o index.html
+app.get('/', (req, res) => {
+  const indexPath = path.join(__dirname, 'index.html');
+  res.sendFile(indexPath);
 });
 
 app.listen(PORT, () => {

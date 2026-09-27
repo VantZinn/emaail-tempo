@@ -1,13 +1,14 @@
 {
-  "name": "temp-mail-cloud",
+  "name": "temp-mail-secure",
   "version": "1.0.0",
-  "description": "Sistema de e-mails temporarios para nuvem",
+  "description": "Sistema de e-mails temporarios com login, senha e validade",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "4.19.2",
+    "sqlite3": "5.1.7",
     "uuid": "9.0.1"
   }
 }
