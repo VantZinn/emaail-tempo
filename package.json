@@ -1,7 +1,7 @@
 {
   "name": "temp-mail-secure",
   "version": "1.0.0",
-  "description": "Sistema de e-mails temporarios com login, senha e validade",
+  "description": "Sistema de e-mails temporarios com historico e login rapido",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>E-mail Temporário com Senha</title>
+    <title>E-mail Temporário com Histórico</title>
     <style>
         body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; background: #f4f4f9; color: #333; }
         .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
@@ -27,7 +27,7 @@
     <div id="authContainer">
         <div class="tabs">
             <div class="tab active" onclick="switchTab('create')">Criar E-mail</div>
-            <div class="tab" onclick="switchTab('login')">Fazer Login</div>
+            <div class="tab" onclick="switchTab('login')">Acessar Histórico / Login</div>
         </div>
 
         <!-- ABA CRIAR -->
@@ -49,37 +49,44 @@
             <button onclick="createEmail()">Gerar E-mail e Senha</button>
         </div>
 
-        <!-- ABA LOGIN -->
+        <!-- ABA LOGIN / HISTÓRICO -->
         <div id="loginTab" class="card hidden">
-            <h2>Acessar Caixa de Entrada</h2>
+            <h2>Selecionar Conta Salva</h2>
             <div id="loginError" class="error"></div>
-            <label>E-mail:</label>
-            <input type="text" id="loginEmail" placeholder="ex: 12a34b56@seudominio.com">
             
+            <label>Selecione um e-mail do seu histórico:</label>
+            <select id="savedEmailsSelect" onchange="fillPasswordFromHistory()">
+                <option value="">-- Escolha um e-mail --</option>
+            </select>
+
             <label>Senha:</label>
             <input type="password" id="loginPassword" placeholder="Sua senha">
 
-            <button onclick="loginEmail()">Entrar</button>
+            <button onclick="loginEmail()">Entrar na Caixa de Entrada</button>
         </div>
     </div>
 
-    <!-- PAINEL DA CAIXA DE ENTRADA (Aparece após logar ou criar) -->
+    <!-- PAINEL DA CAIXA DE ENTRADA -->
     <div id="inboxContainer" class="card hidden">
         <h2>Caixa de Entrada</h2>
         <div class="email-display" id="currentEmailDisplay"></div>
         <p><strong>Senha:</strong> <span id="currentPasswordDisplay"></span></p>
-        <button onclick="logout()">Sair / Trocar de Conta</button>
+        <button onclick="logout()">Sair / Voltar</button>
         <button class="btn-danger" onclick="deleteInbox()">Excluir Este E-mail Definitivamente</button>
         
         <hr style="margin: 20px 0;">
         
-        <h3>Mensagens Recebidas</h3>
+        <h3>Mensagens Recebidas (Atualização Automática)</h3>
         <div id="messagesList">Carregando mensagens...</div>
     </div>
 
     <script>
         let currentEmail = '';
         let intervalId = null;
+
+        window.onload = function() {
+            loadSavedEmails();
+        };
 
         function switchTab(tab) {
             if (tab === 'create') {
@@ -92,6 +99,56 @@
                 document.getElementById('loginTab').classList.remove('hidden');
                 document.querySelectorAll('.tab')[0].classList.remove('active');
                 document.querySelectorAll('.tab')[1].classList.add('active');
+                loadSavedEmails();
+            }
+        }
+
+        // Gerencia o histórico no localStorage
+        function getSavedAccounts() {
+            try {
+                return JSON.parse(localStorage.getItem('temp_mail_accounts')) || [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function saveAccount(email, password) {
+            let accounts = getSavedAccounts();
+            // Remove se já existir para atualizar no topo
+            accounts = accounts.filter(acc => acc.email !== email);
+            accounts.unshift({ email, password });
+            localStorage.setItem('temp_mail_accounts', JSON.stringify(accounts));
+        }
+
+        function removeSavedAccount(email) {
+            let accounts = getSavedAccounts();
+            accounts = accounts.filter(acc => acc.email !== email);
+            localStorage.setItem('temp_mail_accounts', JSON.stringify(accounts));
+            loadSavedEmails();
+        }
+
+        function loadSavedEmails() {
+            const select = document.getElementById('savedEmailsSelect');
+            const accounts = getSavedAccounts();
+            
+            select.innerHTML = '<option value="">-- Escolha um e-mail --</option>';
+            accounts.forEach(acc => {
+                const opt = document.createElement('option');
+                opt.value = acc.email;
+                opt.setAttribute('data-password', acc.password);
+                opt.innerText = acc.email;
+                select.appendChild(opt);
+            });
+        }
+
+        function fillPasswordFromHistory() {
+            const select = document.getElementById('savedEmailsSelect');
+            const selectedOpt = select.options[select.selectedIndex];
+            const pwd = selectedOpt.getAttribute('data-password');
+            if (pwd) {
+                document.getElementById('loginPassword').value = pwd;
+            } else {
+                document.getElementById('loginPassword').value = '';
             }
         }
 
@@ -115,6 +172,7 @@
             const data = await response.json();
 
             if (data.success) {
+                saveAccount(data.email, password);
                 enterInbox(data.email, password);
             } else {
                 errorDiv.innerText = data.error || 'Erro ao criar e-mail.';
@@ -122,12 +180,13 @@
         }
 
         async function loginEmail() {
-            const email = document.getElementById('loginEmail').value;
+            const select = document.getElementById('savedEmailsSelect');
+            const email = select.value || document.getElementById('loginEmailInput']?.value;
             const password = document.getElementById('loginPassword').value;
             const errorDiv = document.getElementById('loginError');
 
             if (!email || !password) {
-                errorDiv.innerText = 'Preencha o e-mail e a senha.';
+                errorDiv.innerText = 'Selecione um e-mail e informe a senha.';
                 return;
             }
             errorDiv.innerText = '';
@@ -140,6 +199,7 @@
             const data = await response.json();
 
             if (data.success) {
+                saveAccount(data.email, password);
                 enterInbox(data.email, password);
             } else {
                 errorDiv.innerText = data.error || 'Login inválido.';
@@ -163,11 +223,13 @@
             if (intervalId) clearInterval(intervalId);
             document.getElementById('inboxContainer').classList.add('hidden');
             document.getElementById('authContainer').classList.remove('hidden');
+            loadSavedEmails();
         }
 
         async function deleteInbox() {
             if (!confirm('Tem certeza que deseja excluir este e-mail? Todas as mensagens serão apagadas.')) return;
             await fetch(`/api/inbox/${currentEmail}`, { method: 'DELETE' });
+            removeSavedAccount(currentEmail);
             logout();
         }
 

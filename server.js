@@ -18,7 +18,6 @@ const db = new sqlite3.Database(dbFile, (err) => {
   }
 });
 
-// Criação das tabelas
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS inboxes (
     email TEXT PRIMARY KEY,
@@ -50,7 +49,6 @@ setInterval(() => {
 
 // --- ROTAS DA API ---
 
-// Criar novo e-mail temporário
 app.post('/api/create', (req, res) => {
   const { domain, password, durationMinutes } = req.body;
   
@@ -61,7 +59,6 @@ app.post('/api/create', (req, res) => {
   const username = uuidv4().substring(0, 8);
   const email = `${username}@${domain}`.toLowerCase();
   
-  // 0 significa para sempre (até excluir manualmente)
   let expires_at = 0;
   if (durationMinutes && Number(durationMinutes) > 0) {
     expires_at = Date.now() + Number(durationMinutes) * 60 * 1000;
@@ -79,7 +76,6 @@ app.post('/api/create', (req, res) => {
   );
 });
 
-// Fazer login na caixa de entrada
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
 
@@ -98,7 +94,6 @@ app.post('/api/login', (req, res) => {
         return res.status(401).json({ error: 'E-mail ou senha incorretos, ou conta expirada.' });
       }
 
-      // Verifica expiração caso tenha tempo limite
       if (row.expires_at > 0 && Date.now() > row.expires_at) {
         return res.status(401).json({ error: 'Este e-mail já expirou.' });
       }
@@ -108,7 +103,6 @@ app.post('/api/login', (req, res) => {
   );
 });
 
-// Buscar mensagens da caixa de entrada específica
 app.get('/api/inbox/:email', (req, res) => {
   const email = req.params.email.toLowerCase();
 
@@ -124,7 +118,6 @@ app.get('/api/inbox/:email', (req, res) => {
   );
 });
 
-// Excluir caixa de entrada manualmente
 app.delete('/api/inbox/:email', (req, res) => {
   const email = req.params.email.toLowerCase();
   db.run(`DELETE FROM inboxes WHERE email = ?`, [email], function(err) {
@@ -143,7 +136,6 @@ app.post('/api/webhook/email', (req, res) => {
 
   const emailAddress = recipient.toLowerCase();
 
-  // Verifica se a caixa existe e não expirou
   db.get(`SELECT * FROM inboxes WHERE email = ?`, [emailAddress], (err, inbox) => {
     if (inbox) {
       if (inbox.expires_at > 0 && Date.now() > inbox.expires_at) {
@@ -166,7 +158,6 @@ app.post('/api/webhook/email', (req, res) => {
   res.status(200).json({ success: true });
 });
 
-// Rota principal: Serve o index.html
 app.get('/', (req, res) => {
   const indexPath = path.join(__dirname, 'index.html');
   res.sendFile(indexPath);
