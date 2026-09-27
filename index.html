@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-mail Temporário</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; background: #f4f4f9; color: #333; }
+        .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        button { background: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .email-display { font-size: 1.2em; font-weight: bold; margin: 10px 0; color: #007bff; }
+        .message { border-bottom: 1px solid #eee; padding: 10px 0; }
+        .message:last-child { border-bottom: none; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Seu E-mail Temporário</h2>
+        <div class="email-display" id="emailAddress">Clique em gerar para começar</div>
+        <button onclick="generateEmail()">Gerar Novo E-mail</button>
+    </div>
+
+    <div class="card">
+        <h3>Caixa de Entrada</h3>
+        <div id="messagesList">Nenhuma mensagem recebida ainda.</div>
+    </div>
+
+    <script>
+        let currentEmail = '';
+        let intervalId = null;
+
+        async function generateEmail() {
+            // Usa o domínio da sua API ou da página
+            const domain = window.location.hostname;
+            const response = await fetch('/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ domain })
+            });
+            const data = await response.json();
+            currentEmail = data.email;
+            document.getElementById('emailAddress').innerText = currentEmail;
+            document.getElementById('messagesList').innerText = 'Aguardando mensagens...';
+
+            if (intervalId) clearInterval(intervalId);
+            intervalId = setInterval(fetchMessages, 5000);
+        }
+
+        async function fetchMessages() {
+            if (!currentemail) return;
+            const response = await fetch(`/api/inbox/${currentEmail}`);
+            const data = await response.json();
+
+            const listDiv = document.getElementById('messagesList');
+            if (data.messages.length === 0) {
+                listDiv.innerHTML = 'Nenhuma mensagem recebida ainda.';
+                return;
+            }
+
+            listDiv.innerHTML = data.messages.map(msg => `
+                <div class="message">
+                    <strong>De:</strong> ${msg.from}<br>
+                    <strong>Assunto:</strong> ${msg.subject}<br>
+                    <small>${new Date(msg.date).toLocaleString()}</small>
+                    <hr>
+                    <div>${msg.html || msg.text}</div>
+                </div>
+            `).join('');
+        }
+    </script>
+</body>
+</html>

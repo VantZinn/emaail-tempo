@@ -1,0 +1,13 @@
+{
+  "name": "temp-mail-cloud",
+  "version": "1.0.0",
+  "description": "Sistema de e-mails temporarios para nuvem",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "4.19.2",
+    "uuid": "9.0.1"
+  }
+}
